@@ -1,0 +1,6 @@
+MySQLdb
+kayvee
+boto3
+requests
+yaml
+boto

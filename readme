@@ -1,0 +1,80 @@
+Goal:
+
+    Make offline backups on our production databases where ordinary backup take lot of time and resources like very
+    expensive ebs.
+
+How to:
+
+    To be able to successfully copy the disk we need to make sure there is not writes in the database.
+    At the moment the script is running in the local server.
+
+    + Stops mysql server.
+        To make the backup consistent. We can improve next versions to lock the tables so server does not need to be
+         stopped
+    + Create snapshot, using boto3 to create and tag the snapshot.
+    + After snapshot has been completed, Starts mysql server again. So server will catch up all changes, and will be
+        ready for next backup.
+    + Process works as a service. There is logic in the program that make it possible to work as a service.
+      ++ check last snapshot is completed.
+      ++ check server has not lag.
+      ++ there is a control file, to avoid running the process twice.
+
+
+Constraints:
+    check lag: backup server must not be more than 3h lag.
+    check last snapshot: last snapshot needs to be completed, and at least 24h older. That is to keep 1 snapshot per
+        day.
+    retention: At the moment we only keep 3 days backups.
+
+List of parameters required:
+
+    mysql:
+      host: localhost
+      user: monitor
+      port: 3306
+      password: 'XXXXXXXXXXXXX'
+      db: ''
+    instance:
+      instance_id: i-XXXXXXXXXXXXX
+      volume_id: vol-XXXXXXXXXXXX
+      g_instance_name: pro-sql-XXXXXXXX-
+      lock_filename: /tmp/db-snapshoot-locking.lock
+      tag_role: sql
+      tag_schema: XXXXXXXXXX
+      tag_environment: pro
+      retention_seconds: 250000
+
+Log file example:
+
+  tail -f /tmp/offline_backup.log
+
+    ...
+
+    INFO:root:{"source":"2018-10-19 14:43:34.677264","title":"","level":" mysql_query:show slave status"}
+    INFO:root:{"source":"2018-10-19 14:43:34.677515","title":" Get_server_lag: False","level":"info"}
+    INFO:root:{"source":"2018-10-19 14:43:34.877742","title":" check_last_snapshots_completed, True","level":"info"}
+    INFO:root:{"source":"2018-10-19 14:43:34.953632","title":"75619","level":"info"}
+    INFO:root:{"source":"2018-10-19 14:43:34.954337","title":" check_last_snapshots_age, False ******","level":"info"}
+    INFO:root:{"source":"2018-10-19 14:43:34.954431","title":" delete_snapshots_gt_3d  ","level":"info"}
+    INFO:root:{"source":"2018-10-19 14:43:35.054003","title":"info","level":" Snapshot snap-0f3b1d459de3fe7d9 not older than 2 days, skipping delete "}
+    INFO:root:{"source":"2018-10-19 14:43:35.054157","title":"info","level":" Snapshot snap-0adfc975151320d99 not older than 2 days, skipping delete "}
+    INFO:root:{"source":"2018-10-19 14:43:35.054261","title":"info","level":" Snapshot snap-072843171d7f13747 not older than 2 days, skipping delete "}
+    INFO:root:{"source":"2018-10-19 14:43:35.129992","title":"info","level":" Exit Process"}
+
+    ...
+
+
+Installing
+
+    pip install -r requirements.ext
+
+    Puuppet handles the full installation just by setting a new tag "backup=true"
+
+
+Errors/Issues
+
+    # On versions above pip 10 , it may require to downgrade pip
+
+        sudo python -m pip install --upgrade pip==9.0.3
+
+

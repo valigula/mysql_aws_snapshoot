@@ -1,0 +1,16 @@
+mysql:
+  host: localhost
+  user: monitor
+  port: 3306
+  password: '#XXXXXXXXXXXXXX'
+  db: ''
+instance:
+  instance_id: i-XXXXXXXXXXXXXX
+  volume_id: vol-XXXXXXXXXXXXXX
+  g_instance_name: pro-sql-<stack-name>-i-XXXXXXXXXX
+  lock_filename: /tmp/db-snapshoot-locking.lock
+  tag_role: sql
+  tag_schema: <stack-name>
+  tag_environment: <env>
+  retention_seconds: 250000
+  frecuency_seconds: 86400
