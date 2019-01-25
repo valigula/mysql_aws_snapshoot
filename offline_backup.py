@@ -114,23 +114,24 @@ def _stop_server(dbconnection):
         :param dbconnection:
         :return: bool
         """
-    logging.info(kayvee.formatLog("Stop_server", "info", "Starting ....",
+    logging.debug(kayvee.formatLog("Stop_server", "debug", "Starting ....",
                                    {'context': "checking if server is running", 'time': str(datetime.now())}))
     try:
         if check_server_is_running(dbconnection):
-            logging.info(kayvee.formatLog("Stop_server", "info", "Service mysql stopping ...",
+            logging.debug(kayvee.formatLog("Stop_server", "debug", "Service mysql stopping ...",
                                            {'context': "stopping ...", 'time': str(datetime.now())}))
 
             os.system("service mysql stop")
-            time.sleep(300)
+            time.sleep(3)
         else:
-            logging.info(kayvee.formatLog("Stop_server", "info", "Service mysql stopped",
+            logging.debug(kayvee.formatLog("Stop_server", "debug", "Service mysql stopped",
                                            {'context': "Stopped!", 'time': str(datetime.now())}))
 
         return True
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logging.error(kayvee.formatLog("Stop_server", "error", "Error!",
                                        {'context': "error:" + str(e), 'time': str(datetime.now())}))
+
         return False
 
 
@@ -165,7 +166,7 @@ def get_server_lag(dbconnection):
     :return:
     """
 
-    logging.debug(kayvee.formatLog("get_server_lag", "debug", "Starting ...",
+    logging.info(kayvee.formatLog("get_server_lag", "info", "Starting ...",
                                    {'context': "checking Server for Lag", 'time': str(datetime.now())}))
 
     lag_status = True
@@ -186,6 +187,7 @@ def get_server_lag(dbconnection):
         logging.error(kayvee.formatLog("get_server_lag", "error", "Error",
                                        dict(context="Error: " + str(e),
                                             time=str(datetime.now()))))
+    finally:
         return lag_status
 
 
@@ -197,13 +199,14 @@ def check_server_is_running(dbconnection):
         :return: bool
         """
     server_running = True
+
     logging.info(kayvee.formatLog("check_server_is_running", "info", "Starting ...",
                                   {'context': " ...:", 'time': str(datetime.now())}))
     result = 0
     try:
         if not get_lock_file():
             logging.debug(kayvee.formatLog("check_server_is_running", "debug", "Lock file exists ...",
-                                           {'context': "Lock file NOT exists", 'time:': str(datetime.now())}))
+                                           {'context': "Lock file NOT exists", 'time': str(datetime.now())}))
             if dbconnection is not None:
                 logging.debug(kayvee.formatLog("check_server_is_running", "debug", "Check dbconnection",
                                                {'context': "Check_server_is_running.dbconnection: "
@@ -231,8 +234,10 @@ def check_server_is_running(dbconnection):
     except Exception as e:
         logging.error(kayvee.formatLog("Check_server_is_running", "error", "Error on function",
                                        {'context': "Error: " + str(e), 'time': str(datetime.now())}))
+        server_running = False
 
-        return False
+    finally:
+        return server_running
 
 
 def mysql_query(conn, query):
@@ -255,87 +260,108 @@ def mysql_query(conn, query):
         return None
 
 
-def check_last_snapshots_completed(pvolumeid):
-    """
-    validate if any snapshot is still running
+def check_last_single_snapshots_completed(snapshot, return_bool=True):
     """
 
-    logging.debug(kayvee.formatLog("Check_last_snapshots_completed", "debug", "Starting...",
+    :param snapshot:
+    :param return_bool:
+    :return:
+    """
+
+    logging.debug(kayvee.formatLog("check_last_single_snapshots_completed", "debug", "Starting...",
                                   {'context': "...", 'time': str(datetime.now())}))
 
-    snapshot_completed = True
-    ec2 = connect_to_region('us-east-1')
-    snapshots = ec2.get_all_snapshots(filters={'volume-id': [pvolumeid]})
+    try:
 
-    for snapshot in snapshots:
         if snapshot.status != 'completed':
-            snapshot_completed = False
-            break
-    return snapshot_completed
+            return_bool = False
+
+    except Exception as e:
+        logging.error(kayvee.formatLog("check_last_single_snapshots_completed", "error", "Error",
+                                       dict(context="Error: " + str(e),
+                                            time=str(datetime.now()))))
+        return_bool = False
+    finally:
+        return return_bool
 
 
-def check_last_snapshots_age(pvolumeid):
+def check_last_single_snapshots_age(snapshot, return_bool=True):
     """
-    Check that the last snapshot (86400 sec) has more than 1 day.
-    :param pvolumeid:
-    :return: bool
+
+    :param snapshot:
+    :param return_bool:
+    :return:
     """
-    logging.info(kayvee.formatLog("check_last_snapshots_age", "info", "Starting...",
+
+    logging.info(kayvee.formatLog("check_last_single_snapshots_completed", "info", "Starting...",
                                   {'context': "...", 'time': str(datetime.now())}))
-    snapshot_age = True
-    ec2 = connect_to_region('us-east-1')
-    snapshots = ec2.get_all_snapshots(filters={'volume-id': [pvolumeid]})
 
-    for snapshot in snapshots:
-        timestamp = datetime.strptime(
-            snapshot.start_time,
-            '%Y-%m-%dT%H:%M:%S.000Z')
+    timestamp = datetime.strptime(
+        snapshot.start_time, '%Y-%m-%dT%H:%M:%S.000Z')
 
-        logging.info(kayvee.formatLog("check_last_snapshots_age", "info", "Check snapshot aged",
-                                      {'context': "snapshot id:" + str(snapshot.id) + " timestamp:" + str(timestamp),
-                                       'time': str(datetime.now())}))
+    logging.info(kayvee.formatLog("check_last_single_snapshots_completed", "info", "Check snapshot aged",
+                                        {'context': "snapshot id:" + str(snapshot.id) + " timestamp:" + str(timestamp),
+                                           'time': str(datetime.now())}))
 
-        if int((datetime.utcnow() - timestamp).total_seconds()) < 86400:
-            snapshot_age = False
-            break
+    if int((datetime.utcnow() - timestamp).total_seconds()) < 86400:
+        return_bool = False
 
-    return snapshot_age
+    return return_bool
 
 
-def delete_snapshots_gt_d(pvolumeid):
+def delete_single_snapshots_gt_d(snapshot, return_bool=True):
     """
 
-    :param pvolumeid:
-    :return: bool
+    :param snapshot:
+    :param return_bool:
+    :return:
     """
     logging.debug(kayvee.formatLog("delete_snapshots_gt_d", "debug", "Starting...",
                                   {'context': "...", 'time': str(datetime.now())}))
-    snapshot_age = False
-    ec2 = connect_to_region('us-east-1')
-    snapshots = ec2.get_all_snapshots(filters={'volume-id': [pvolumeid]})
 
-    for snapshot in snapshots:
-        timestamp = datetime.strptime(
-            snapshot.start_time,
-            '%Y-%m-%dT%H:%M:%S.000Z')
+    timestamp = datetime.strptime(snapshot.start_time,'%Y-%m-%dT%H:%M:%S.000Z')
 
-        last_snap_time = int((datetime.utcnow() - timestamp).total_seconds())
-        logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "last_snap_time: " + str(last_snap_time),
-                                      {'context': "Get Snapshot timestamp:" + str(last_snap_time),
-                                       'time': str(datetime.now())}))
+    last_snap_time = int((datetime.utcnow() - timestamp).total_seconds())
+    logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "last_snap_time: " + str(last_snap_time),
+                                          {'context': "Get Snapshot timestamp:" + str(last_snap_time),
+                                           'time': str(datetime.now())}))
 
-        if last_snap_time > int(INSTANCE_CONFIG["Retention"]):
-            logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "Candidates to be deleted",
-                                          {'context': str(snapshot.id), 'time': str(datetime.now())}))
-            ec2 = boto3.client('ec2', region_name='us-east-1')
-            ec2.delete_snapshot(SnapshotId=snapshot.id)
-            snapshot_age = True
-            time.sleep(5)
-        else:
-            logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "Not candidates to be deleted",
-                                          {'context': "not candidates", 'time': str(datetime.now())}))
+    if last_snap_time > int(INSTANCE_CONFIG["Retention"]):
+        logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "Candidates to be deleted",
+                                              {'context': str(snapshot.id), 'time': str(datetime.now())}))
 
-    return snapshot_age
+        ec.delete_snapshot(SnapshotId=snapshot.id)
+        time.sleep(5)
+    else:
+        logging.info(kayvee.formatLog("delete_snapshots_gt_d", "info", "Not candidates to be deleted",
+                                              {'context': "not candidates", 'time': str(datetime.now())}))
+    return return_bool
+
+
+def volume_list_per_func(pvolumeid, name_func):
+
+
+    logging.info(kayvee.formatLog("volume_list_per_func", "info", "Starting...",
+                                  {'context': "...", 'time': str(datetime.now())}))
+    return_value = True
+    try:
+        ec2 = connect_to_region('us-east-1')
+
+        i = 0
+        for i in range(len(pvolumeid)):
+            snapshots = ec2.get_all_snapshots(filters={'volume-id': [pvolumeid[i]]})
+            for snapshot in snapshots:
+                return_value = name_func(snapshot)
+                if not return_value:
+                    break
+            i += 1
+    except Exception as e:
+        logging.error(kayvee.formatLog("volume_list_per_func", "error", "Error",
+                                       dict(context="Error: " + str(e),
+                                            time=str(datetime.now()))))
+        return_value = False
+    finally:
+        return return_value
 
 
 def get_lock_file():
@@ -394,34 +420,34 @@ def remove_lock_file():
 def create_snapshot(dbconnection):
     """
 
-        :param dbconnection:
-        :return:
-        """
+    :param dbconnection:
+    :return:
+    """
     return_value = False
     try:
         logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
                                       {'context': "Starting", 'time': str(datetime.now())}))
         if check_server_is_running(dbconnection):
             if get_server_lag(dbconnection):
-                logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
+                logging.info(kayvee.formatLog("create_snapshot", "info", "get_server_lag=True",
                                               {'context': "Server has lag, Exit", 'time': str(datetime.now())}))
             else:
-                logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
+                logging.info(kayvee.formatLog("create_snapshot", "info", "get_server_lag=False",
                                               {'context': " Server has Not lag, continue",
                                                'time': str(datetime.now())}))
 
-        if not check_last_snapshots_completed(INSTANCE_CONFIG["VolumeId"]):
-            logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
+        if not volume_list_per_func(INSTANCE_CONFIG["VolumeId"], check_last_single_snapshots_completed):
+            logging.info(kayvee.formatLog("volume_list_per_func + check_last_single_snapshots_completed ", "info", "create_snapshot",
                                           {'context': "Check_last_snapshots_completed=False, Exit",
                                            'time': str(datetime.now())}))
 
         else:
             logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
-                                          {'context': "Check_last_snapshots_completed=True, Continue",
+                                          {'context': "check_last_single_snapshots_completed=True, Continue",
                                            'time': str(datetime.now())}))
 
-            if check_last_snapshots_age(INSTANCE_CONFIG["VolumeId"]):
-                logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
+            if volume_list_per_func(INSTANCE_CONFIG["VolumeId"], check_last_single_snapshots_age):
+                logging.info(kayvee.formatLog("volume_list_per_func + check_last_single_snapshots_age", "info", "create_snapshot",
                                               {'context': "Check_last_snapshots_age=True",
                                                'time': str(datetime.now())}))
 
@@ -429,46 +455,34 @@ def create_snapshot(dbconnection):
                 set_lock_file()
                 _stop_server(dbconnection)
 
-                if check_server_is_running(dbconnection):
-                    return False
-
-                if not check_server_is_running(dbconnection):
-                    logging.info(kayvee.formatLog("create_snapshot", "info", "check server mysql server is stooped",
-                                                  {'context': "Can not backup mysql running.",
-                                                   'time': str(datetime.now())}))
-                    return False
-
                 for instance in instances:
-                    volumes = instance.volumes.filter(VolumeIds=[INSTANCE_CONFIG["VolumeId"], ], )
-
                     logging.info(kayvee.formatLog("create_snapshot", "info", "create_snapshot",
-                                                  {'context': "Volume_id:" + str(volumes),
+                                                  {'context': "Volume_id:" + str(INSTANCE_CONFIG["VolumeId"]),
                                                    'time': str(datetime.now())}))
-                    for v in volumes:
-                        # logging.info(kayvee.formatLog(str(datetime.now()), "info", " volume_id: " + str(v.id)))
-                        # SlackManager.send_message("Starting Snapshot: volume_id: " + str(v.id))
-                        snapshot = ec.create_snapshot(VolumeId=v.id, Description="Lambda backup for ebs " + v.id)
-                        time.sleep(2)
-                        ec.create_tags(
-                            Resources=[
-                                snapshot['SnapshotId'],
-                            ],
-                            Tags=[
-                                {'Key': 'Name',
-                                 'Value': INSTANCE_CONFIG["InstanceName"]},
-                                {'Key': 'role', 'Value': INSTANCE_CONFIG["TagRole"]},
-                                {'Key': 'schema', 'Value': INSTANCE_CONFIG["TagSchema"]},
-                                {'Key': 'Environment', 'Value': INSTANCE_CONFIG["Environment"]},
-                            ]
-                        )
+                    volume1 = instance.volumes.filter(VolumeIds=INSTANCE_CONFIG["VolumeId"], )
+                    for v in volume1:
 
-                        result = snapshot["SnapshotId"]
-                        logging.info(kayvee.formatLog("create_snapshot", "info", "creating snapshots",
+                            snapshot = ec.create_snapshot(VolumeId=v.id, Description="Lambda backup for ebs " + v.id)
+                            time.sleep(10)
+                            ec.create_tags(
+                                Resources=[
+                                    snapshot['SnapshotId'],
+                                ],
+                                Tags=[
+                                    {'Key': 'Name', 'Value': INSTANCE_CONFIG["InstanceName"]},
+                                    {'Key': 'role', 'Value': INSTANCE_CONFIG["TagRole"]},
+                                    {'Key': 'schema', 'Value': INSTANCE_CONFIG["TagSchema"]},
+                                    {'Key': 'Environment', 'Value': INSTANCE_CONFIG["Environment"]},
+                                ]
+                            )
+
+                            result = snapshot["SnapshotId"]
+                            logging.info(kayvee.formatLog("create_snapshot", "info", "creating snapshots",
                                                       {'context': str(result), 'time': str(datetime.now())}))
-                        return_value = True
+                            return_value = True
             else:
                 logging.info(kayvee.formatLog("create_snapshot", "info", "creating snapshots",
-                                              {'context': "Check_last_snapshots_age=False",
+                                              {'context': "check_last_single_snapshots_age=False",
                                                'time': str(datetime.now())}))
 
         return return_value
@@ -487,10 +501,12 @@ def run():
 
     create_snapshot(conn)
 
-    delete_snapshots_gt_d(INSTANCE_CONFIG["VolumeId"])
+    volume_list_per_func(INSTANCE_CONFIG["VolumeId"], delete_single_snapshots_gt_d)
 
-    if check_last_snapshots_completed(INSTANCE_CONFIG["VolumeId"]) and get_lock_file() and conn is None:
-        logging.info(kayvee.formatLog("Snapshot Completed", "info", "second step reboot mysql",
+    if volume_list_per_func(INSTANCE_CONFIG["VolumeId"], check_last_single_snapshots_completed)\
+            and get_lock_file() and conn is None:
+        logging.info(kayvee.formatLog("volume_list_per_func + delete_single_snapshots_gt_d",
+                                      "info", "second step reboot mysql",
                                       {'context': "rebooting mysql", 'time': str(datetime.now())}))
         _start_server()
         remove_lock_file()
